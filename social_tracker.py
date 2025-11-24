@@ -19,30 +19,29 @@ TOPICS = {
 
 def get_search_results(query):
     """
-    实际聚合：调用百度新闻搜索，并限制时间范围在最近 7 天内
+    实际聚合：调用百度新闻搜索，并限制时间范围在最近 24 小时内
     """
+    print(f"Executing Baidu News search for: {query}")
     
-    
-        # 百度新闻搜索 URL
+    # 百度新闻搜索 URL
     # gpc=1&qdr=1: 限制搜索时间为最近 24 小时 (qdr=1)
     base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=1&wd="
     
-    # ...
+    # *** 关键修复：确保 full_url 在 try 块之前被定义 ***
+    full_url = base_url + urllib.parse.quote(query) 
     
     headers = {
-        # 模拟三星 S24U 上的最新 Chrome 浏览器 User-Agent
+        # 模拟 S24U 上的最新 Chrome 浏览器 User-Agent，绕过反爬
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
     }
-
     results = []
 
     try:
-        # 添加超时和状态码检查
+        # 确保 requests.get 使用了完整的 full_url
         resp = requests.get(full_url, headers=headers, timeout=15)
         resp.raise_for_status() 
-        print(f"DEBUG BAIDU STATUS: {resp.status_code}, Length: {len(resp.text)}")
-
         resp.encoding = 'utf-8'
+        
         soup = BeautifulSoup(resp.text, 'html.parser')
 
         # 百度新闻搜索结果的通用 CSS 选择器
@@ -65,14 +64,18 @@ def get_search_results(query):
                     })
 
     except Exception as e:
-        print(f"Baidu Search Error: {e}")
+        # 打印当前查询的错误信息
+        print(f"Baidu Search Error for query '{query}': {e}")
         return []
 
     return results
 
 def send_push(title, content):
     """发送到微信"""
-    if not TOKEN: sys.exit(1)
+    if not TOKEN: 
+        print("Error: PUSHPLUS_TOKEN missing.")
+        sys.exit(1)
+        
     url = 'http://www.pushplus.plus/send'
     data = {"token": TOKEN, "title": title, "content": content, "template": "markdown"}
     
@@ -84,7 +87,7 @@ def send_push(title, content):
 
 def main():
     report_title = f"全网热点追踪 ({datetime.date.today().strftime('%Y-%m-%d')})"
-    report_parts = [f"## 🔥 全网热点追踪 - 最近一周趋势 (扩大范围)", "---"]
+    report_parts = [f"## 🔥 全网热点追踪 - 最近 24 小时趋势", "---"]
     all_results_found = False
 
     for topic, keywords in TOPICS.items():
@@ -101,18 +104,18 @@ def main():
             all_results_found = True
             report_parts.append(f"### 🚀 {topic} - 热门讨论")
             
-            # 报告中展示最相关的 10 条结果 (增加数量)
+            # 报告中展示最相关的 10 条结果 
             for i, item in enumerate(results[:10]): 
-                # Markdown 格式：[标题](链接) - 来源
+                # Markdown 格式：[标题](链接) (来源)
                 report_parts.append(f"- [{item['title']}]({item['link']}) ({item['source']})")
                 
             report_parts.append("\n")
 
     if not all_results_found:
-        report_parts.append("今日未发现符合所有主题的明确热点。请尝试手动扩大搜索范围。")
+        report_parts.append("今日未发现符合所有主题的明确热点。当前筛选为最近 24 小时。")
         
     report_parts.append("---")
-    report_parts.append("*💡 结果来自百度新闻聚合 (最近七天，范围已扩大)。*")
+    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，范围已扩大)。*")
 
     send_push(report_title, "\n".join(report_parts))
 
