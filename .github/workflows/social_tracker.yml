@@ -1,0 +1,27 @@
+name: 每日社交热点追踪
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天北京时间早上 8:00 运行
+  workflow_dispatch: # 允许手动运行
+
+jobs:
+  track_social_hotspots:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v2
+
+    - name: Set up Python Environment
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install Dependencies
+      run: pip install requests
+
+    - name: Run Social Hotspot Tracker
+      env:
+        PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+      run: python social_tracker.py
