@@ -1,7 +1,9 @@
 import requests
+from bs4 import BeautifulSoup
 import datetime
 import os
 import sys
+import urllib.parse
 
 # --- 配置 ---
 TOKEN = os.environ.get("PUSHPLUS_TOKEN")
@@ -20,19 +22,57 @@ SOCIAL_PLATFORMS = ["小红书", "抖音", "微博"]
 
 def get_search_results(query):
     """
-    (模拟) 外部搜索引擎API调用
-    在实际部署中，此函数需要调用 Google/Baidu API 或爬取其结果页。
-    此处为简化和演示结构，返回模拟数据。
+    实际聚合：调用百度新闻搜索，并限制时间范围在最近 7 天内
     """
-    print(f"Executing search for: {query}")
+    print(f"Executing Baidu News search for: {query}")
     
-    # 模拟真实搜索返回的最新热点
-    return [
-        {"title": "小红书爆款：高三家长必看！高效冲刺学习法", "link": "https://example.xiaohongshu.com/hot_topic/abc", "platform": "小红书"},
-        {"title": "某机构发布：2025年高考志愿填报新趋势分析", "link": "https://example.article.com/article/123", "platform": "权威文章"},
-        {"title": "微博热搜：如何正确进行青春期家庭教育", "link": "https://example.weibo.com/topic/family", "platform": "微博"},
-        {"title": "抖音视频：孩子厌学怎么办？心理专家支招", "link": "https://example.douyin.com/video/456", "platform": "抖音"},
-    ]
+    # 百度新闻搜索 URL
+    # gpc=1&qdr=7: 限制搜索时间为最近 7 天 (qdr=1为24小时，qdr=7为最近一周)
+    base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=7&wd="
+    
+    # URL 编码查询字符串
+    full_url = base_url + urllib.parse.quote(query)
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    results = []
+
+    try:
+        resp = requests.get(full_url, headers=headers, timeout=15)
+        resp.encoding = 'utf-8'
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        # 百度新闻搜索结果的通用 CSS 选择器
+        # 查找 class="result" 标签
+        search_results = soup.find_all('div', class_='result') or soup.find_all('div', class_='c-container')
+        
+        for result in search_results:
+            title_tag = result.find('a', target='_blank')
+            source_tag = result.find('p', class_='c-author') or result.find('span', class_='c-info')
+            
+            if title_tag and title_tag.get('href'):
+                # 清理标题，去除可能的多余空格或标签
+                title = title_tag.get_text(strip=True)
+                link = title_tag.get('href')
+                
+                # 提取来源和时间
+                source_info = source_tag.get_text(strip=True) if source_tag else '未知来源'
+                
+                # 简单过滤，确保标题有内容
+                if len(title) > 10:
+                    results.append({
+                        "title": title,
+                        "link": link,
+                        "source": source_info
+                    })
+
+    except Exception as e:
+        print(f"Baidu Search Error: {e}")
+        # 如果搜索失败，返回空列表，确保程序继续运行
+        return []
+
+    return results
 
 def send_push(title, content):
     """发送到微信"""
@@ -51,29 +91,36 @@ def send_push(title, content):
 
 def main():
     report_title = f"全网热点追踪 ({datetime.date.today().strftime('%Y-%m-%d')})"
-    report_parts = [f"## 🔥 {report_title} - 最近三天热点追踪", "---"]
+    report_parts = [f"## 🔥 全网热点追踪 - 最近一周趋势", "---"]
     all_results_found = False
 
     for topic, keywords in TOPICS.items():
-        # 构造搜索查询：优先社交媒体 AND (所有关键词) AND 确保时效性
-        query = f"({' OR '.join(SOCIAL_PLATFORMS)}) AND ({' OR '.join(keywords)}) \"最近三天\""
+        # 构造搜索查询：所有关键词 OR 平台关键词
+        # 关键词之间用空格隔开，百度默认是 AND 关系
+        query_keywords = ' '.join(keywords) 
+        platform_keywords = ' OR '.join(SOCIAL_PLATFORMS)
         
-        results = get_search_results(query) # 模拟搜索执行
+        # 最终查询：(核心关键词) AND (社交媒体 OR 权威来源)
+        query = f"({query_keywords}) ({platform_keywords} OR 教育部 OR 官网)"
+        
+        results = get_search_results(query) # 执行真实搜索
         
         if results:
             all_results_found = True
             report_parts.append(f"### 🚀 {topic} - 热门讨论")
             
-            for i, item in enumerate(results[:5]): # 每主题展示前5条
-                report_parts.append(f"*{item['platform']}*：[{item['title']}]({item['link']})")
+            # 报告中只展示最相关的 5 条结果
+            for i, item in enumerate(results[:5]): 
+                # Markdown 格式：[标题](链接) - 来源
+                report_parts.append(f"- [{item['title']}]({item['link']}) ({item['source']})")
                 
             report_parts.append("\n")
 
     if not all_results_found:
-        report_parts.append("今日未发现符合所有主题和平台筛选的明确热点。请尝试手动搜索。")
+        report_parts.append("今日未发现符合所有主题和平台筛选的明确热点。请尝试扩大搜索范围。")
         
     report_parts.append("---")
-    report_parts.append("*💡 结果为搜索引擎聚合与模拟，不代表实时抓取。*")
+    report_parts.append("*💡 结果来自百度新闻聚合 (最近七天)，点击链接查看详情。*")
 
     send_push(report_title, "\n".join(report_parts))
 
