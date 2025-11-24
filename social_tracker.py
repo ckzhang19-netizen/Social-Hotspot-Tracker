@@ -7,6 +7,8 @@ import urllib.parse
 
 # --- 配置 ---
 TOKEN = os.environ.get("PUSHPLUS_TOKEN")
+PAGES_TO_SCRAPE = 3 # 设定为抓取前 3 页搜索结果
+RESULTS_PER_PAGE = 10 # 百度每页显示10条，用于计算下一页的pn参数
 
 # 四大主题关键词
 TOPICS = {
@@ -19,56 +21,64 @@ TOPICS = {
 
 def get_search_results(query):
     """
-    实际聚合：调用百度新闻搜索，并限制时间范围在最近 24 小时内
+    实际聚合：调用百度新闻搜索，并执行分页抓取
     """
-    print(f"Executing Baidu News search for: {query}")
+    print(f"Executing Baidu News search for: {query} (Depth: {PAGES_TO_SCRAPE} pages)")
     
-    # 百度新闻搜索 URL
-    # gpc=1&qdr=1: 限制搜索时间为最近 24 小时 (qdr=1)
+    # 百度新闻搜索 URL 参数
+    # rtt=4 (新闻模式), gpc=1&qdr=1 (最近 24 小时), pn={offset} (分页参数)
     base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=1&wd="
     
-    # *** 关键修复：确保 full_url 在 try 块之前被定义 ***
-    full_url = base_url + urllib.parse.quote(query) 
-    
     headers = {
-        # 模拟 S24U 上的最新 Chrome 浏览器 User-Agent，绕过反爬
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
     }
-    results = []
-
-    try:
-        # 确保 requests.get 使用了完整的 full_url
-        resp = requests.get(full_url, headers=headers, timeout=15)
-        resp.raise_for_status() 
-        resp.encoding = 'utf-8'
+    all_results = []
+    
+    # --- 核心升级：分页循环 ---
+    for page in range(PAGES_TO_SCRAPE):
+        offset = page * RESULTS_PER_PAGE # pn=0 (page 1), pn=10 (page 2), pn=20 (page 3)
         
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        # 百度新闻搜索结果的通用 CSS 选择器
-        search_results = soup.find_all('div', class_='result') or soup.find_all('div', class_='c-container')
+        full_url = f"{base_url}{urllib.parse.quote(query)}&pn={offset}"
         
-        for result in search_results:
-            title_tag = result.find('a', target='_blank')
-            source_tag = result.find('p', class_='c-author') or result.find('span', class_='c-info')
+        try:
+            resp = requests.get(full_url, headers=headers, timeout=15)
+            resp.raise_for_status() 
+            resp.encoding = 'utf-8'
             
-            if title_tag and title_tag.get('href'):
-                title = title_tag.get_text(strip=True)
-                link = title_tag.get('href')
-                source_info = source_tag.get_text(strip=True) if source_tag else '未知来源'
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            # 检查是否命中反爬（防止获取到空页面）
+            if len(resp.text) < 10000 and page > 0: # 如果页面太小，通常是反爬，停止后续页面抓取
+                print(f"Baidu Search Blocked on page {page+1}. Stopping pagination.")
+                break
                 
-                if len(title) > 10:
-                    results.append({
-                        "title": title,
-                        "link": link,
-                        "source": source_info
-                    })
+            search_results = soup.find_all('div', class_='result') or soup.find_all('div', class_='c-container')
+            
+            if not search_results:
+                # 如果当前页没有结果，也停止分页
+                break 
+                
+            for result in search_results:
+                title_tag = result.find('a', target='_blank')
+                source_tag = result.find('p', class_='c-author') or result.find('span', class_='c-info')
+                
+                if title_tag and title_tag.get('href'):
+                    title = title_tag.get_text(strip=True)
+                    link = title_tag.get('href')
+                    source_info = source_tag.get_text(strip=True) if source_tag else '未知来源'
+                    
+                    if len(title) > 10 and link not in [r['link'] for r in all_results]: # 避免重复
+                        all_results.append({
+                            "title": title,
+                            "link": link,
+                            "source": source_info
+                        })
 
-    except Exception as e:
-        # 打印当前查询的错误信息
-        print(f"Baidu Search Error for query '{query}': {e}")
-        return []
+        except Exception as e:
+            print(f"Baidu Search Error on page {page+1} for query '{query}': {e}")
+            break # 出现错误则停止分页
 
-    return results
+    return all_results
 
 def send_push(title, content):
     """发送到微信"""
@@ -87,35 +97,30 @@ def send_push(title, content):
 
 def main():
     report_title = f"全网热点追踪 ({datetime.date.today().strftime('%Y-%m-%d')})"
-    report_parts = [f"## 🔥 全网热点追踪 - 最近 24 小时趋势", "---"]
+    report_parts = [f"## 🔥 全网热点追踪 - 最近 24 小时趋势 (3 页深度)", "---"]
     all_results_found = False
 
     for topic, keywords in TOPICS.items():
-        # *** 关键升级：简化查询，只搜索主题关键词，扩大匹配范围 ***
         query_keywords = ' '.join(keywords) 
-        
-        # 搜索内容：包含教育 AND 核心关键词
-        # 移除社交平台关键词，让百度自己去聚合
         query = f"教育 {query_keywords}" 
         
         results = get_search_results(query) 
         
         if results:
             all_results_found = True
-            report_parts.append(f"### 🚀 {topic} - 热门讨论")
+            # *** 报告升级：增加显示数量至 15 条 ***
+            report_parts.append(f"### 🚀 {topic} - 热门讨论 (共发现 {len(results)} 条)")
             
-            # 报告中展示最相关的 10 条结果 
-            for i, item in enumerate(results[:10]): 
-                # Markdown 格式：[标题](链接) (来源)
+            for i, item in enumerate(results[:15]): # 显示前 15 条
                 report_parts.append(f"- [{item['title']}]({item['link']}) ({item['source']})")
                 
             report_parts.append("\n")
 
     if not all_results_found:
-        report_parts.append("今日未发现符合所有主题的明确热点。当前筛选为最近 24 小时。")
+        report_parts.append("今日未发现符合所有主题的明确热点。当前筛选为最近 24 小时 (3 页深度)。")
         
     report_parts.append("---")
-    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，范围已扩大)。*")
+    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，已启用 3 页深度采集)。*")
 
     send_push(report_title, "\n".join(report_parts))
 
