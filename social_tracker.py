@@ -21,16 +21,19 @@ TOPICS = {
 
 def get_search_results(query):
     """
-    实际聚合：调用百度新闻搜索，并执行分页抓取
+    实际聚合：调用百度新闻搜索，并限制时间范围在最近 7 天内
     """
     print(f"Executing Baidu News search for: {query} (Depth: {PAGES_TO_SCRAPE} pages)")
     
     # 百度新闻搜索 URL 参数
-    # rtt=4 (新闻模式), gpc=1&qdr=1 (最近 24 小时), pn={offset} (分页参数)
-    base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=1&wd="
+    # rtt=4 (新闻模式), gpc=1&qdr=7 (最近 7 天，已更新!)
+    base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=7&wd="
+    
+    # ... (其余代码保持不变) ...
+    
+    full_url = base_url + urllib.parse.quote(query) 
     
     headers = {
-        # 模拟 S24U 上的最新 Chrome 浏览器 User-Agent，绕过反爬
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
     }
     all_results = []
@@ -39,10 +42,10 @@ def get_search_results(query):
     for page in range(PAGES_TO_SCRAPE):
         offset = page * RESULTS_PER_PAGE # pn=0 (page 1), pn=10 (page 2), pn=20 (page 3)
         
-        full_url = f"{base_url}{urllib.parse.quote(query)}&pn={offset}"
+        full_url_with_offset = f"{full_url}&pn={offset}"
         
         try:
-            resp = requests.get(full_url, headers=headers, timeout=15)
+            resp = requests.get(full_url_with_offset, headers=headers, timeout=15)
             resp.raise_for_status() 
             resp.encoding = 'utf-8'
             
@@ -97,13 +100,13 @@ def send_push(title, content):
 
 def main():
     report_title = f"全网热点追踪 ({datetime.date.today().strftime('%Y-%m-%d')})"
-    report_parts = [f"## 🔥 全网热点追踪 - 聚焦抖音/小红书 (3 页深度)", "---"]
+    report_parts = [f"## 🔥 全网热点追踪 - 聚焦抖音/小红书 (7 天时效)", "---"]
     all_results_found = False
 
     for topic, keywords in TOPICS.items():
         query_keywords = ' '.join(keywords) 
         
-        # *** 核心升级：强制要求结果包含 '小红书' 或 '抖音' ***
+        # 核心查询：强制要求结果包含 '小红书' 或 '抖音'
         query = f"(小红书 OR 抖音) AND (教育 {query_keywords})" 
         
         results = get_search_results(query) 
@@ -112,19 +115,18 @@ def main():
             all_results_found = True
             
             report_parts.append(f"### 🚀 {topic} - 热门讨论")
-            # 报告中显示前 15 条
             report_parts.append(f"*(共发现 {len(results)} 条，已过滤非抖音/小红书结果)*")
 
-            for i, item in enumerate(results[:15]): 
+            for i, item in enumerate(results[:15]): # 显示前 15 条
                 report_parts.append(f"- [{item['title']}]({item['link']}) ({item['source']})")
                 
             report_parts.append("\n")
 
     if not all_results_found:
-        report_parts.append("今日未发现符合所有主题的明确热点。请尝试手动扩大搜索范围。")
+        report_parts.append("今日未发现符合所有主题的明确热点。当前筛选为最近 7 天。")
         
     report_parts.append("---")
-    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，聚焦小红书/抖音)。*")
+    report_parts.append("*💡 结果来自百度新闻聚合 (最近 7 天，聚焦小红书/抖音)。*")
 
     send_push(report_title, "\n".join(report_parts))
 
