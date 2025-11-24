@@ -8,7 +8,7 @@ import urllib.parse
 # --- 配置 ---
 TOKEN = os.environ.get("PUSHPLUS_TOKEN")
 PAGES_TO_SCRAPE = 3 # 设定为抓取前 3 页搜索结果
-RESULTS_PER_PAGE = 10 # 百度每页显示10条，用于计算下一页的pn参数
+RESULTS_PER_PAGE = 10 
 
 # 四大主题关键词
 TOPICS = {
@@ -30,6 +30,7 @@ def get_search_results(query):
     base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=1&wd="
     
     headers = {
+        # 模拟 S24U 上的最新 Chrome 浏览器 User-Agent，绕过反爬
         'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
     }
     all_results = []
@@ -47,15 +48,14 @@ def get_search_results(query):
             
             soup = BeautifulSoup(resp.text, 'html.parser')
             
-            # 检查是否命中反爬（防止获取到空页面）
-            if len(resp.text) < 10000 and page > 0: # 如果页面太小，通常是反爬，停止后续页面抓取
+            # 检查是否命中反爬
+            if len(resp.text) < 10000 and page > 0: 
                 print(f"Baidu Search Blocked on page {page+1}. Stopping pagination.")
                 break
                 
             search_results = soup.find_all('div', class_='result') or soup.find_all('div', class_='c-container')
             
             if not search_results:
-                # 如果当前页没有结果，也停止分页
                 break 
                 
             for result in search_results:
@@ -97,30 +97,34 @@ def send_push(title, content):
 
 def main():
     report_title = f"全网热点追踪 ({datetime.date.today().strftime('%Y-%m-%d')})"
-    report_parts = [f"## 🔥 全网热点追踪 - 最近 24 小时趋势 (3 页深度)", "---"]
+    report_parts = [f"## 🔥 全网热点追踪 - 聚焦抖音/小红书 (3 页深度)", "---"]
     all_results_found = False
 
     for topic, keywords in TOPICS.items():
         query_keywords = ' '.join(keywords) 
-        query = f"教育 {query_keywords}" 
+        
+        # *** 核心升级：强制要求结果包含 '小红书' 或 '抖音' ***
+        query = f"(小红书 OR 抖音) AND (教育 {query_keywords})" 
         
         results = get_search_results(query) 
         
         if results:
             all_results_found = True
-            # *** 报告升级：增加显示数量至 15 条 ***
-            report_parts.append(f"### 🚀 {topic} - 热门讨论 (共发现 {len(results)} 条)")
             
-            for i, item in enumerate(results[:15]): # 显示前 15 条
+            report_parts.append(f"### 🚀 {topic} - 热门讨论")
+            # 报告中显示前 15 条
+            report_parts.append(f"*(共发现 {len(results)} 条，已过滤非抖音/小红书结果)*")
+
+            for i, item in enumerate(results[:15]): 
                 report_parts.append(f"- [{item['title']}]({item['link']}) ({item['source']})")
                 
             report_parts.append("\n")
 
     if not all_results_found:
-        report_parts.append("今日未发现符合所有主题的明确热点。当前筛选为最近 24 小时 (3 页深度)。")
+        report_parts.append("今日未发现符合所有主题的明确热点。请尝试手动扩大搜索范围。")
         
     report_parts.append("---")
-    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，已启用 3 页深度采集)。*")
+    report_parts.append("*💡 结果来自百度新闻聚合 (最近 24 小时，聚焦小红书/抖音)。*")
 
     send_push(report_title, "\n".join(report_parts))
 
