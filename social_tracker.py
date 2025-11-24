@@ -37,6 +37,8 @@ def get_search_results(query):
         # 添加超时和状态码检查
         resp = requests.get(full_url, headers=headers, timeout=15)
         resp.raise_for_status() 
+        print(f"DEBUG BAIDU STATUS: {resp.status_code}, Length: {len(resp.text)}")
+
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
 
