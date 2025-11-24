@@ -21,16 +21,19 @@ def get_search_results(query):
     """
     实际聚合：调用百度新闻搜索，并限制时间范围在最近 7 天内
     """
-    print(f"Executing Baidu News search for: {query}")
     
-    # 百度新闻搜索 URL：rtt=4 (新闻模式)，gpc=1&qdr=7 (最近 7 天)
-    base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=7&wd="
     
-    full_url = base_url + urllib.parse.quote(query)
+        # 百度新闻搜索 URL
+    # gpc=1&qdr=1: 限制搜索时间为最近 24 小时 (qdr=1)
+    base_url = "https://www.baidu.com/s?tn=news&rtt=4&gpc=1&qdr=1&wd="
+    
+    # ...
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        # 模拟三星 S24U 上的最新 Chrome 浏览器 User-Agent
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36'
     }
+
     results = []
 
     try:
